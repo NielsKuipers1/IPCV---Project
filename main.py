@@ -100,8 +100,6 @@ def tennis_court_calibration_from_dimensions():
     return points3d
 
 
-
-
 def get_court_points(image):
     """
     Allow user to manually select court points in the image
@@ -196,7 +194,7 @@ def warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs
     alpha = 50
 
     # Define the destination points in the overhead view (top-down)
-    dst_points = np.array([
+    dstPoints = np.array([
         [0, 0],                                      # Bottom-left
         [output_size[0], 0],                         # Bottom-right
         [0, output_size[1]],                         # Top-left
@@ -208,12 +206,27 @@ def warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs
     ], dtype=np.float32)
 
     # Compute the homography from the detected points to the top-down view
-    homographyMatrix, _ = cv2.findHomography(points2d, dst_points)
+    homographyMatrix, _ = cv2.findHomography(points2d, dstPoints)
 
     # Warp the image using the homography matrix to get the top-down view
     topDownView = cv2.warpPerspective(image, homographyMatrix, output_size)
 
-    return topDownView
+    return topDownView, dstPoints
+
+
+def warpBackToOriginalView(topDownView, points2d, dstPoints, outputSize, originalImageSize):
+    """
+    Warps the top-down view back to the original perspective.
+    """
+    # Calculate the homography matrix from top-down to original perspective
+    homographyMatrix, _ = cv2.findHomography(dstPoints, points2d)
+    
+    # Warp the top-down image back to the original perspective
+    originalPerspectiveView = cv2.warpPerspective(topDownView, homographyMatrix, originalImageSize)
+    
+    return originalPerspectiveView
+
+
 
 
 #====================================================================
@@ -257,10 +270,13 @@ def warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs
 if __name__ == "__main__":
     # Load image
     image = cv2.imread('court.png')
+    ad = cv2.imread('image.png')
 
     # Get image size
     imageSize = (image.shape[1], image.shape[0])
+    adSize = (ad.shape[1], ad.shape[0])
 
+    # Define points in court
     points3d = tennis_court_calibration_from_dimensions()
 
     # Get 2D points from user input
@@ -288,7 +304,7 @@ if __name__ == "__main__":
     print(tvecs)
 
     # Generate the top-down view of the court
-    topDownView = warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
+    topDownView, dstPoints = warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
 
     # Display the top-down view
     plt.figure(figsize=(10, 5))
@@ -297,14 +313,24 @@ if __name__ == "__main__":
     plt.title('Top-Down View of the Tennis Court')
     plt.show()
 
-    # Visualize errors
+    topImageResized = cv2.resize(ad, (topDownView.shape[1], ad.shape[0]))
+    combinedImage = np.vstack((topImageResized, topDownView))
+
+    # Plot again
     plt.figure(figsize=(10, 5))
-    plt.bar(range(len(errors)), errors)
-    plt.axhline(y=meanError, color='r', linestyle='--', label='Mean Error')
-    plt.title('Reprojection Error for Each Point')
-    plt.xlabel('Point Number')
-    plt.ylabel('Error (pixels)')
-    plt.legend()
+    plt.imshow(cv2.cvtColor(combinedImage, cv2.COLOR_BGR2RGB))
+    plt.axis('off')
+    plt.title('Top-Down View of the Tennis Court')
+    plt.show()
+
+    # back to original view
+    OGView = warpBackToOriginalView(combinedImage, points2d, dstPoints, (800,600), image.shape[1::-1])
+
+    # Display the top-down view
+    plt.figure(figsize=(10, 5))
+    plt.imshow(cv2.cvtColor(OGView, cv2.COLOR_BGR2RGB))
+    plt.axis('off')
+    plt.title('OG View of the Tennis Court with ad')
     plt.show()
 
 
