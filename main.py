@@ -79,8 +79,6 @@ def tennis_court_calibration_from_dimensions():
     # Standard tennis court measurements (in m)
     COURT_LENGTH = 23.77                    # baseline to baseline
     COURT_WIDTH = 10.97                     # doubles sideline to sideline
-    SERVICE_LINE_FROM_NET = 6.40            # service line to net
-    CENTER_SERVICE_LINE = 12.80             # length of center service line
     SECOND_LINE = 1.37                      # distance between base line and 2nd line
     
     # Define 3D points of tennis court key points (in world coordinates)
@@ -187,6 +185,37 @@ def analyze_results(points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs):
     return errors, meanError
 
 
+def warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs, output_size=(800, 600)):
+    """
+    Warps the image to a top-down view using calculated camera parameters.
+    """
+    # Project the 3D points of the court to the image plane
+    projectedPoints, _ = cv2.projectPoints(points3d, rvecs[0], tvecs[0], cameraMatrix, distCoeffs)
+    projectedPoints = projectedPoints.reshape(-1, 2)
+
+    alpha = 50
+
+    # Define the destination points in the overhead view (top-down)
+    dst_points = np.array([
+        [0, 0],                                      # Bottom-left
+        [output_size[0], 0],                         # Bottom-right
+        [0, output_size[1]],                         # Top-left
+        [output_size[0], output_size[1]],            # Top-right
+        [alpha, 0],                                  # Bottom-left 2nd
+        [output_size[0]-alpha, 0],                   # Bottom-right 2nd
+        [alpha, output_size[1]],                     # Top-left 2nd
+        [output_size[0]-alpha, output_size[1]]       # Top-right 2nd
+    ], dtype=np.float32)
+
+    # Compute the homography from the detected points to the top-down view
+    homographyMatrix, _ = cv2.findHomography(points2d, dst_points)
+
+    # Warp the image using the homography matrix to get the top-down view
+    topDownView = cv2.warpPerspective(image, homographyMatrix, output_size)
+
+    return topDownView
+
+
 #====================================================================
 # # initiate video 
 # video_path = 'video.mp4'
@@ -245,7 +274,7 @@ if __name__ == "__main__":
         points3d, points2d, imageSize)
 
     # Analyze and display results
-    errors, mean_error = analyze_results(
+    errors, meanError = analyze_results(
         points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
 
     # Display results
@@ -258,12 +287,25 @@ if __name__ == "__main__":
     print("\nTranslation matrix:")
     print(tvecs)
 
+    # Generate the top-down view of the court
+    topDownView = warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
+
+    # Display the top-down view
+    plt.figure(figsize=(10, 5))
+    plt.imshow(cv2.cvtColor(topDownView, cv2.COLOR_BGR2RGB))
+    plt.axis('off')
+    plt.title('Top-Down View of the Tennis Court')
+    plt.show()
+
     # Visualize errors
     plt.figure(figsize=(10, 5))
     plt.bar(range(len(errors)), errors)
-    plt.axhline(y=mean_error, color='r', linestyle='--', label='Mean Error')
+    plt.axhline(y=meanError, color='r', linestyle='--', label='Mean Error')
     plt.title('Reprojection Error for Each Point')
     plt.xlabel('Point Number')
     plt.ylabel('Error (pixels)')
     plt.legend()
     plt.show()
+
+
+
