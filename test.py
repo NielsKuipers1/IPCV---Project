@@ -5,7 +5,7 @@ import os
 # function to detect lines
 def detect_corners(gray,frame):
     points = []
-    corners = cv2.cornerHarris(gray, 50, 3, 0.01) 
+    corners = cv2.cornerHarris(gray, 100, 3, 0.01) 
     corners = cv2.normalize(corners, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     _, thresh = cv2.threshold(corners, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     dilated = cv2.dilate(thresh, None, iterations=1)
@@ -36,10 +36,10 @@ def detect_lines(frame, boundaries):
     intersections = []
     # Step 3: Edge detection to get line contours
     edges = cv2.Canny(gray, 50, 200, apertureSize=3)
-    edges = cv2.dilate(edges, (3,3), iterations=10)
+    edges = cv2.dilate(edges, (30,30), iterations=6)
     line_image = np.copy(combined_mask) * 0  # creating a blank to draw lines on
     # Step 4: Hough Line Transform to detect lines
-    lines = cv2.HoughLinesP(edges, rho=1, theta=np.pi / 180, threshold=150, minLineLength=450, maxLineGap=50)
+    lines = cv2.HoughLinesP(edges, rho=1, theta=np.pi / 180, threshold=170, minLineLength=400, maxLineGap=50)
     points = []
     for line in lines:
         for x1, y1, x2, y2 in line:
@@ -48,8 +48,8 @@ def detect_lines(frame, boundaries):
     line_image_colored = cv2.cvtColor(line_image, cv2.COLOR_GRAY2BGR)
     gray = frame * line_image_colored
     gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
-    # gray, points = detect_corners(gray,frame)
     gray = skeleton(line_image)
+    gray, points = detect_corners(gray,frame)
     return frame, gray, line_image
 
 def skeleton(image):
