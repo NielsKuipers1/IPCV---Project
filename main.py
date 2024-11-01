@@ -1,5 +1,6 @@
-import cv2
 import numpy as np
+import cv2 as cv2
+import matplotlib.pyplot as plt
 import os
 
 def detect_corners(frame, boundaries, lines, max_distance=5):
@@ -74,38 +75,195 @@ def detect_lines(frame, boundaries, min_line_length=70):
     return frame, filtered_lines
 
 
-# initiate video 
-video_path = 'video.mp4'
-cap = cv2.VideoCapture(video_path)
-fps = cap.get(cv2.CAP_PROP_FPS)
-
-# defenition of parameters
-frame_count = 0
-frames_per_segment = int(fps * 2.5)  
-total_segments = 8
-total_frames = frames_per_segment * total_segments
-boundaries = [([170, 170, 100], [255, 255, 255])] # define threshold to only use the white lines 
-
-while frame_count < total_frames:
-    ret, frame = cap.read()
-    if not ret:
-        break
-    # Step 1: corner and line detection (localize calibration points)
-    output_frame, detected_lines = detect_lines(frame, boundaries)
-    output_frame, intersections = detect_corners(frame,boundaries,detected_lines)
+def tennis_court_calibration_from_dimensions():
+    # Standard tennis court measurements (in m)
+    COURT_LENGTH = 23.77                    # baseline to baseline
+    COURT_WIDTH = 10.97                     # doubles sideline to sideline
+    SERVICE_LINE_FROM_NET = 6.40            # service line to net
+    CENTER_SERVICE_LINE = 12.80             # length of center service line
+    SECOND_LINE = 1.37                      # distance between base line and 2nd line
     
-    # Step 2 Intrinsic camera calibration using the known 3D positions of reference objects
+    # Define 3D points of tennis court key points (in world coordinates)
+    points3d = np.array([
+        # Baseline corners
+        [0, 0, 0],                          # Bottom left
+        [COURT_WIDTH, 0, 0],                # Bottom right
+        [0, COURT_LENGTH, 0],               # Top left
+        [COURT_WIDTH, COURT_LENGTH, 0],     # Top right
+
+        # 2nd line corners
+        [SECOND_LINE, 0, 0],
+        [COURT_WIDTH-SECOND_LINE, 0, 0],
+        [SECOND_LINE, COURT_LENGTH, 0],
+        [COURT_WIDTH-SECOND_LINE, COURT_LENGTH, 0]
+
+    ], dtype=np.float32)
+
+    return points3d
+
+
+
+
+def get_court_points(image):
+    """
+    Allow user to manually select court points in the image
+    Returns array of 2D points corresponding to court_points_3d
+    """
+    points2d = []
     
-    # Step 3 External camera calibration: the pose of the camera relative to the 3D reference objects
+    # Create a window to display the image
+    window_name = 'Select Court Points'
+    img_display = image.copy()
+    
+    def mouse_callback(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            points2d.append([x, y])
+            # Draw circle at selected point
+            cv2.circle(img_display, (x, y), 5, (0, 255, 0), -1)
+            cv2.imshow(window_name, img_display)
+    
+    cv2.imshow(window_name, img_display)
+    cv2.setMouseCallback(window_name, mouse_callback)
+    
+    print("Click on the following points in order:")
+    print("1. Bottom left baseline corner")
+    print("2. Bottom right baseline corner")
+    print("3. Top left baseline corner")
+    print("4. Top right baseline corner")
+    print("5. Bottom left 2nd corner")
+    print("6. Bottom right 2nd corner")
+    print("7. Top left 2nd corner")
+    print("8. Top right 2nd corner")
+    
+    while len(points2d) < len(points3d):
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cv2.destroyAllWindows()
+    return np.array(points2d, dtype=np.float32)
 
-    # Step 4 Tracking of 2D points and/or lines in the movie.
 
-    # Step 5 Based on these tracked points and/or lines, camera pose tracking during the movie.
+def calibrate_from_points(points3d, points2d, imageSize):
+    """
+    Calculate intrinsic camera parameters from corresponding 3D-2D points
+    """
+    # Initial guess for camera matrix
+    focal_length = 1000  # Initial guess
+    center = (imageSize[1]/2, imageSize[0]/2)
+    cameraMatrix = np.array(
+        [[focal_length, 0, center[0]],
+         [0, focal_length, center[1]],
+         [0, 0, 1]], dtype=np.float32)
+    
+    # Initial guess for distortion coefficients
+    distCoeffs = np.zeros((4,1))
 
-    # Step 6 Projection of a virtual banner which has a rectangular shape in the real world and located near a court line
+    # Find camera parameters
+    success, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(
+        [points3d], [points2d], imageSize, cameraMatrix, distCoeffs,
+        flags=cv2.CALIB_USE_INTRINSIC_GUESS)
+    
+    return cameraMatrix, distCoeffs, rvecs, tvecs 
 
-    cv2.imshow("Detected Lines", output_frame)
-    cv2.waitKey(25)
-    frame_count += 1 
-cap.release()
-cv2.destroyAllWindows()
+
+def analyze_results(points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs):
+    """
+    Calculate and display reprojection error
+    """
+    projected_points, _ = cv2.projectPoints(points3d, rvecs[0], tvecs[0], 
+                                        cameraMatrix, distCoeffs)
+    projected_points = projected_points.reshape(-1, 2)
+    
+    # Calculate error for each point
+    errors = []
+    for i in range(len(points2d)):
+        error = np.linalg.norm(points2d[i] - projected_points[i])
+        errors.append(error)
+        print(f"Point {i+1} error: {error:.2f} pixels")
+    
+    meanError = np.mean(errors)
+    print(f"\nMean reprojection error: {meanError:.2f} pixels")
+    
+    return errors, meanError
+
+
+#====================================================================
+# # initiate video 
+# video_path = 'video.mp4'
+# cap = cv2.VideoCapture(video_path)
+# fps = cap.get(cv2.CAP_PROP_FPS)
+
+# # defenition of parameters
+# frame_count = 0
+# frames_per_segment = int(fps * 2.5)  
+# total_segments = 8
+# total_frames = frames_per_segment * total_segments
+# boundaries = [([170, 170, 100], [255, 255, 255])] # define threshold to only use the white lines 
+
+# while frame_count < total_frames:
+#     ret, frame = cap.read()
+#     if not ret:
+#         break
+#     # Step 1: corner and line detection (localize calibration points)
+#     output_frame, detected_lines = detect_lines(frame, boundaries)
+#     output_frame, intersections = detect_corners(frame,boundaries,detected_lines)
+    
+#     # Step 2 Intrinsic camera calibration using the known 3D positions of reference objects
+    
+#     # Step 3 External camera calibration: the pose of the camera relative to the 3D reference objects
+
+#     # Step 4 Tracking of 2D points and/or lines in the movie.
+
+#     # Step 5 Based on these tracked points and/or lines, camera pose tracking during the movie.
+
+#     # Step 6 Projection of a virtual banner which has a rectangular shape in the real world and located near a court line
+
+#     cv2.imshow("Detected Lines", output_frame)
+#     cv2.waitKey(25)
+#     frame_count += 1 
+# cap.release()
+# cv2.destroyAllWindows()
+
+# Main execution
+if __name__ == "__main__":
+    # Load image
+    image = cv2.imread('court.png')
+
+    # Get image size
+    imageSize = (image.shape[1], image.shape[0])
+
+    points3d = tennis_court_calibration_from_dimensions()
+
+    # Get 2D points from user input
+    points2d = get_court_points(image)
+
+    if len(points2d) < len(points3d):
+        raise ValueError("Not enough points selected")
+
+    # Calibrate camera
+    cameraMatrix, distCoeffs, rvecs, tvecs = calibrate_from_points(
+        points3d, points2d, imageSize)
+
+    # Analyze and display results
+    errors, mean_error = analyze_results(
+        points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
+
+    # Display results
+    print("\nCamera Matrix:")
+    print(cameraMatrix)
+    print("\nDistortion Coefficients:")
+    print(distCoeffs.ravel())
+    print("\nRotation matrix:")
+    print(rvecs)
+    print("\nTranslation matrix:")
+    print(tvecs)
+
+    # Visualize errors
+    plt.figure(figsize=(10, 5))
+    plt.bar(range(len(errors)), errors)
+    plt.axhline(y=mean_error, color='r', linestyle='--', label='Mean Error')
+    plt.title('Reprojection Error for Each Point')
+    plt.xlabel('Point Number')
+    plt.ylabel('Error (pixels)')
+    plt.legend()
+    plt.show()
