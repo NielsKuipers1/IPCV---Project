@@ -2,31 +2,75 @@ import cv2
 import numpy as np
 import os
 
-def detect_lines(frame,boundaries):
-    intersections = []
+def detect_lines(frame, canny_threshold1=100, canny_threshold2=700):
+    """
+    Detects lines in an image and returns the image with lines drawn.
+    
+    Parameters:
+    - frame: Input image (as a NumPy array).
+    - canny_threshold1: Lower threshold for the Canny edge detector.
+    - canny_threshold2: Upper threshold for the Canny edge detector.
+    - hough_threshold: Threshold for the Hough Line Transform.
+    
+    Returns:
+    - output_image: Image with detected lines drawn on it.
+    - lines: List of detected lines in (rho, theta) format.
+     """
+    # Step 1: Create a mask for white pixels in the color image
+    # Define lower and upper bounds for white color in the BGR color space
+    lower_white = np.array([170, 170, 170], dtype=np.uint8)
+    upper_white = np.array([255, 255, 255], dtype=np.uint8)
+    frame = cv2.GaussianBlur(frame, (3, 3), 0)
+    # Apply the color mask to isolate white pixels
+    white_mask = cv2.inRange(frame, lower_white, upper_white)
+    
+    # Step 2: Apply the mask to get only white regions in the grayscale image
+    masked_image = cv2.bitwise_and(frame, frame, mask=white_mask)
 
-    # remove colors of lower values (the lines are white)
-    for (lower, upper) in boundaries:
-        lower = np.array(lower, dtype="uint8")
-        upper = np.array(upper, dtype="uint8")
-        mask = cv2.inRange(frame, lower, upper)
-        output = cv2.bitwise_and(frame, frame, mask=mask)
-    gray = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY)
-    corners = cv2.cornerHarris(gray, 9, 3, 0.01) 
-    corners = cv2.normalize(corners, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    _, thresh = cv2.threshold(corners, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    dilated = cv2.dilate(thresh, None, iterations=1)
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    for contour in contours:
-        moments = cv2.moments(contour)
-        if moments["m00"] != 0:
-            cx = int(moments["m10"] / moments["m00"])
-            cy = int(moments["m01"] / moments["m00"])
-            cv2.circle(frame, (cx, cy), 3, (0, 0, 255), -1)
-            intersections.append(contour)
-    return frame, intersections
 
-video_path = 'video.mp4'
+    # Step 1: Convert to grayscale
+    gray = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
+    
+    # Step 2: Edge detection using Canny
+    edges = cv2.Canny(gray, canny_threshold1, canny_threshold2, apertureSize=3)
+    
+    # Step 3: Detect lines using Hough Line Transform
+    lines = cv2.HoughLinesP(
+    edges,
+    rho=1,                # Distance resolution in pixels
+    theta=np.pi / 360,    # Angular resolution in radians (increase for finer resolution)
+    threshold=100,         # Lower threshold for detecting lines (try 50 if 100 was too high)
+    minLineLength=200,     # Decrease minLineLength if lines are short in the bottom-right
+    maxLineGap=300         # Increase maxLineGap to bridge broken segments
+)
+    
+    # Copy the original image to draw lines on
+    output_image = frame.copy()
+    
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]  # Get merged line coordinates
+            cv2.line(output_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    else:
+        print("No lines detected")
+
+    gray_float = np.float32(gray)
+
+    # Apply Harris Corner Detection
+    corners_harris = cv2.cornerHarris(gray_float, blockSize=2, ksize=3, k=0.04)
+
+    # Dilate the corner image to mark the corners
+    corners_harris = cv2.dilate(corners_harris, None)
+
+    # Threshold for an optimal value
+    threshold = 0.01 * corners_harris.max()
+    output_image[corners_harris > threshold] = [0, 0, 255]  # Mark corners in red
+
+
+    
+    return output_image, lines
+
+video_path = 'video2.mp4'
 cap = cv2.VideoCapture(video_path)
 frame_count = 0
 fps = cap.get(cv2.CAP_PROP_FPS)
@@ -40,10 +84,11 @@ while frame_count < total_frames:
     ret, frame = cap.read()
     if not ret:
         break
-    # Step 1: corner detection
-    frame, intersections = detect_lines(frame,boundaries)
+    # Step 1: line detection
+    frame, lines = detect_lines(frame)
+    
     cv2.imshow('frame',frame)
     cv2.waitKey(25)
     frame_count += 1 
-cap.release()
-cv2.destroyAllWindows()
+#cap.release()
+#cv2.destroyAllWindows()
