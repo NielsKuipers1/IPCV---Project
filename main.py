@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 
-def detect_corners(frame, boundaries, lines, max_distance=10):
+def detect_corners(frame, boundaries, lines, max_distance=100):
     intersections = []
 
     # Remove colors of lower values (the lines are white)
@@ -37,8 +37,15 @@ def detect_corners(frame, boundaries, lines, max_distance=10):
                 distance_to_end = np.sqrt((cx - x2) ** 2 + (cy - y2) ** 2)
                 
                 if distance_to_start <= max_distance or distance_to_end <= max_distance:
-                    cv2.circle(frame, (cx, cy), 3, (0, 0, 255), -1)
-                    corner_points.append((cx, cy))
+
+                    # TODO: check if point is a cornerpoint, if add it to corner_points and draw it
+                    rectHalfWidth = 10
+                    roi = gray[cy-rectHalfWidth:cy+rectHalfWidth,cx-rectHalfWidth:cx+rectHalfWidth]
+                    print(roi.shape)
+                    if isCorner(roi,rectHalfWidth):
+                        cv2.circle(frame, (cx, cy), 3, (0, 0, 255), -1)
+                        corner_points.append((cx, cy))
+
                     intersections.append(contour)
 
                     break  # No need to check other lines for this contour
@@ -77,8 +84,44 @@ def detect_corners(frame, boundaries, lines, max_distance=10):
     #             if is_line_white(gray, p1, p2):
     #                 cv2.line(frame, p1, p2, (0, 255, 0), 2)  # Draw line
     #                                 # Classify lines as horizontal or vertical  
-
     return frame, ccorner
+
+def binaryIm(frame, thresh):
+    frameGray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    frameBinary = cv2.threshold(frameGray, thresh, 255, cv2.THRESH_BINARY)[1]
+    return frameBinary
+
+def isCorner(frame, rectHalfWidth):
+    leftSide = False
+    upperSide = False
+    rightSide = False
+    lowerSide = False
+
+   
+    for i in range(0,frame.shape[0]-1):
+        # check leftside
+        if frame[0,i] == 255:
+            leftSide = True
+            break
+    for i in range(0,frame.shape[0]-1):
+        # check upperside
+        if frame[i,0] == 255:
+            upperSide = True
+            break
+    for i in range(0,frame.shape[0]-1):
+        # check rightside
+        if frame[frame.shape[0]-1,i] == 255:
+            rightSide = True
+            break
+    for i in range(0,frame.shape[0]-1):
+        # check lowerside
+        if frame[i,frame.shape[0]-1] == 255:
+            lowerSide = True
+            break
+    iscorner = False
+    if (leftSide and upperSide) or (upperSide and rightSide) or (rightSide and lowerSide) or (lowerSide and leftSide):
+        iscorner = True
+    return iscorner
 
 def is_line_white(frame, p1, p2, color_threshold=200, white_percentage=0.9):
     line_points = np.linspace(p1, p2, num=100, dtype=int)  # Sample 100 points along the line
@@ -96,7 +139,7 @@ def is_line_white(frame, p1, p2, color_threshold=200, white_percentage=0.9):
     # Check if the white count meets the required percentage
     return (white_count / total_points) >= white_percentage
 
-def detect_lines(frame, boundaries, min_line_length=100):
+def detect_lines(frame, boundaries, min_line_length=80):
     # Step 1: Color thresholding to isolate white lines
     combined_mask = np.zeros(frame.shape[:2], dtype="uint8")
     for (lower, upper) in boundaries:
@@ -125,7 +168,7 @@ def detect_lines(frame, boundaries, min_line_length=100):
             if line_length >= min_line_length:  # Check if line length meets the minimum requirement
                 filtered_lines.append(line)
                 # cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw long lines only
-    return frame, filtered_lines
+    return lines, filtered_lines
 
 # initiate video 
 video_path = 'video2.mp4'
@@ -139,13 +182,20 @@ total_segments = 8
 total_frames = frames_per_segment * total_segments
 boundaries = [([170, 170, 100], [255, 255, 255])] # define threshold to only use the white lines 
 
+kernel_size = (1, 1)  # Adjust kernel size based on the desired blurring
+sigma = 0  # Auto-calculate sigma based on kernel size
+
 while frame_count < total_frames:
     ret, frame = cap.read()
     if not ret:
         break
     # Step 1: corner and line detection (localize calibration points)
-    output_frame, detected_lines = detect_lines(frame, boundaries)
-    output_frame, intersections = detect_corners(frame,boundaries,detected_lines)
+    blurred_frame = cv2.GaussianBlur(frame, kernel_size, sigma)
+    output_frame, detected_lines = detect_lines(blurred_frame, boundaries)
+    output_frame, intersections = detect_corners(blurred_frame,boundaries,detected_lines)
+
+    thresh = 200
+    testOutput = binaryIm(blurred_frame, thresh)
     
     # Step 2 Intrinsic camera calibration using the known 3D positions of reference objects
     
@@ -157,7 +207,7 @@ while frame_count < total_frames:
 
     # Step 6 Projection of a virtual banner which has a rectangular shape in the real world and located near a court line
 
-    cv2.imshow("Detected Lines", output_frame)
+    cv2.imshow("Detected corners", output_frame)
     cv2.waitKey(25)
     frame_count += 1 
 cap.release()
