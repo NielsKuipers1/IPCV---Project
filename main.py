@@ -139,6 +139,40 @@ def get_court_points(image):
     return np.array(points2d, dtype=np.float32)
 
 
+def get_banner_points(image, bannerCorners):
+    """
+    Allow user to manually select banner points in the image
+    """
+    points2d = []
+    
+    # Create a window to display the image
+    window_name = 'Select banner points'
+    img_display = image.copy()
+    
+    def mouse_callback(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            points2d.append([x, y])
+            # Draw circle at selected point
+            cv2.circle(img_display, (x, y), 5, (255, 0, 0), -1)
+            cv2.imshow(window_name, img_display)
+    
+    cv2.imshow(window_name, img_display)
+    cv2.setMouseCallback(window_name, mouse_callback)
+    
+    print("Click on the following points in order:")
+    print("1. Bottom left baseline corner")
+    print("2. Bottom right baseline corner")
+    print("3. Top left baseline corner")
+    print("4. Top right baseline corner")
+    
+    while len(points2d) < bannerCorners:
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cv2.destroyAllWindows()
+    return np.array(points2d, dtype=np.float32)
+
+
 def calibrate_from_points(points3d, points2d, imageSize):
     """
     Calculate intrinsic camera parameters from corresponding 3D-2D points
@@ -226,7 +260,93 @@ def warpBackToOriginalView(topDownView, points2d, dstPoints, outputSize, origina
     
     return originalPerspectiveView
 
+def addHorizontalBanner(frame, adImage, points2d, outputSize=(800, 600)):
+    """
+    Add horizontal banner to frame using perspective transform
+    """
+    # Get frame dimensions
+    frameH, frameW = frame.shape[:2]
+    
+    # Resize ad banner to appropriate width while maintaining aspect ratio
+    bannerWidth = frameW
+    aspectRatio = adImage.shape[1] / adImage.shape[0]
+    bannerHeight = int(bannerWidth / aspectRatio)
+    adResized = cv2.resize(adImage, (bannerWidth, bannerHeight))
+    
+    # Define source points (rectangle for the ad)
+    src_points = np.array([
+        [0, 0],                    # top left
+        [bannerWidth-1, 0],        # top right
+        [bannerWidth-1, bannerHeight-1],  # bottom right
+        [0, bannerHeight-1]        # bottom left
+    ], dtype=np.float32)
+    
+    # Reorder destination points to match the correct orientation
+    # Now using: bottom-left, bottom-right, top-right, top-left
+    dst_points = np.array([
+        points2d[2],  # bottom right
+        points2d[3],  # bottom left
+        points2d[1],  # top right
+        points2d[0]   # top left   
+    ], dtype=np.float32)
+    
+    # Calculate perspective transform
+    matrix = cv2.getPerspectiveTransform(src_points, dst_points)
+    
+    # Warp the ad banner
+    warpedBanner = cv2.warpPerspective(adResized, matrix, (frameW, frameH))
+    
+    # Create a mask for the warped banner
+    mask = np.zeros((frameH, frameW), dtype=np.uint8)
+    cv2.fillConvexPoly(mask, dst_points.astype(np.int32), 255)
+    
+    # Blend the banner with the original frame
+    mask3d = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
+    result = frame * (1 - mask3d) + warpedBanner * mask3d
+    
+    return result.astype(np.uint8)
 
+# Main video processing loop
+def process_video(video_path, ad_path):
+    cap = cv2.VideoCapture(video_path)
+    adImage = cv2.imread(ad_path)
+    
+    # Get video properties
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Create video writer
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('output_video.mp4', fourcc, fps, (width, height))
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        # Detect lines and corners
+        boundaries = [([170, 170, 100], [255, 255, 255])]
+        output_frame, detected_lines = detect_lines(frame, boundaries)
+        output_frame, intersections = detect_corners(frame, boundaries, detected_lines)
+        
+        # Get court points (you might want to modify this to automatically detect points)
+        points2d = get_court_points(frame)
+        
+        # Add banner
+        result_frame = addHorizontalBanner(frame, adImage, points2d)
+        
+        # Write frame
+        out.write(result_frame)
+        
+        # Display result
+        cv2.imshow('Video with Banner', result_frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
 
 
 #====================================================================
@@ -280,18 +400,18 @@ if __name__ == "__main__":
     points3d = tennis_court_calibration_from_dimensions()
 
     # Get 2D points from user input
-    points2d = get_court_points(image)
-
-    if len(points2d) < len(points3d):
+    points2dCourt = get_court_points(image)
+    
+    if len(points2dCourt) < len(points3d):
         raise ValueError("Not enough points selected")
 
     # Calibrate camera
     cameraMatrix, distCoeffs, rvecs, tvecs = calibrate_from_points(
-        points3d, points2d, imageSize)
+        points3d, points2dCourt, imageSize)
 
     # Analyze and display results
     errors, meanError = analyze_results(
-        points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
+        points3d, points2dCourt, cameraMatrix, distCoeffs, rvecs, tvecs)
 
     # Display results
     print("\nCamera Matrix:")
@@ -303,35 +423,48 @@ if __name__ == "__main__":
     print("\nTranslation matrix:")
     print(tvecs)
 
-    # Generate the top-down view of the court
-    topDownView, dstPoints = warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
+    # # Generate the top-down view of the court
+    # topDownView, dstPoints = warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
 
-    # Display the top-down view
+    # # Display the top-down view
+    # plt.figure(figsize=(10, 5))
+    # plt.imshow(cv2.cvtColor(topDownView, cv2.COLOR_BGR2RGB))
+    # plt.axis('off')
+    # plt.title('Top-Down View of the Tennis Court')
+    # plt.show()
+
+    # topImageResized = cv2.resize(ad, (topDownView.shape[1], ad.shape[0]))
+    # combinedImage = np.vstack((topImageResized, topDownView))
+
+    # # Plot again
+    # plt.figure(figsize=(10, 5))
+    # plt.imshow(cv2.cvtColor(combinedImage, cv2.COLOR_BGR2RGB))
+    # plt.axis('off')
+    # plt.title('Top-Down View of the Tennis Court')
+    # plt.show()
+
+    # # back to original view
+    # OGView = warpBackToOriginalView(combinedImage, points2d, dstPoints, (800,600), image.shape[1::-1])
+
+    # # Display the top-down view
+    # plt.figure(figsize=(10, 5))
+    # plt.imshow(cv2.cvtColor(OGView, cv2.COLOR_BGR2RGB))
+    # plt.axis('off')
+    # plt.title('OG View of the Tennis Court with ad')
+    # plt.show()
+
+    # Test addHorizontalBanner 
+    bannerCorners = 4
+    points2dBanner = get_banner_points(image, bannerCorners)
+    test = addHorizontalBanner(image, ad, points2dBanner, outputSize=(800, 600))
     plt.figure(figsize=(10, 5))
-    plt.imshow(cv2.cvtColor(topDownView, cv2.COLOR_BGR2RGB))
+    plt.imshow(cv2.cvtColor(test, cv2.COLOR_BGR2RGB))
     plt.axis('off')
-    plt.title('Top-Down View of the Tennis Court')
+    plt.title('Test')
     plt.show()
 
-    topImageResized = cv2.resize(ad, (topDownView.shape[1], ad.shape[0]))
-    combinedImage = np.vstack((topImageResized, topDownView))
 
-    # Plot again
-    plt.figure(figsize=(10, 5))
-    plt.imshow(cv2.cvtColor(combinedImage, cv2.COLOR_BGR2RGB))
-    plt.axis('off')
-    plt.title('Top-Down View of the Tennis Court')
-    plt.show()
-
-    # back to original view
-    OGView = warpBackToOriginalView(combinedImage, points2d, dstPoints, (800,600), image.shape[1::-1])
-
-    # Display the top-down view
-    plt.figure(figsize=(10, 5))
-    plt.imshow(cv2.cvtColor(OGView, cv2.COLOR_BGR2RGB))
-    plt.axis('off')
-    plt.title('OG View of the Tennis Court with ad')
-    plt.show()
-
-
-
+# if __name__ == "__main__":
+#     video_path = 'video2.1.mp4'
+#     ad_path = 'image.png'
+#     process_video(video_path, ad_path)
