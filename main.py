@@ -173,93 +173,6 @@ def get_banner_points(image, bannerCorners):
     return np.array(points2d, dtype=np.float32)
 
 
-def calibrate_from_points(points3d, points2d, imageSize):
-    """
-    Calculate intrinsic camera parameters from corresponding 3D-2D points
-    """
-    # Initial guess for camera matrix
-    focal_length = 1000  # Initial guess
-    center = (imageSize[1]/2, imageSize[0]/2)
-    cameraMatrix = np.array(
-        [[focal_length, 0, center[0]],
-         [0, focal_length, center[1]],
-         [0, 0, 1]], dtype=np.float32)
-    
-    # Initial guess for distortion coefficients
-    distCoeffs = np.zeros((4,1))
-
-    # Find camera parameters
-    success, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(
-        [points3d], [points2d], imageSize, cameraMatrix, distCoeffs,
-        flags=cv2.CALIB_USE_INTRINSIC_GUESS)
-    
-    return cameraMatrix, distCoeffs, rvecs, tvecs 
-
-
-def analyze_results(points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs):
-    """
-    Calculate and display reprojection error
-    """
-    projected_points, _ = cv2.projectPoints(points3d, rvecs[0], tvecs[0], 
-                                        cameraMatrix, distCoeffs)
-    projected_points = projected_points.reshape(-1, 2)
-    
-    # Calculate error for each point
-    errors = []
-    for i in range(len(points2d)):
-        error = np.linalg.norm(points2d[i] - projected_points[i])
-        errors.append(error)
-        print(f"Point {i+1} error: {error:.2f} pixels")
-    
-    meanError = np.mean(errors)
-    print(f"\nMean reprojection error: {meanError:.2f} pixels")
-    
-    return errors, meanError
-
-
-def warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs, output_size=(800, 600)):
-    """
-    Warps the image to a top-down view using calculated camera parameters.
-    """
-    # Project the 3D points of the court to the image plane
-    projectedPoints, _ = cv2.projectPoints(points3d, rvecs[0], tvecs[0], cameraMatrix, distCoeffs)
-    projectedPoints = projectedPoints.reshape(-1, 2)
-
-    alpha = 50
-
-    # Define the destination points in the overhead view (top-down)
-    dstPoints = np.array([
-        [0, 0],                                      # Bottom-left
-        [output_size[0], 0],                         # Bottom-right
-        [0, output_size[1]],                         # Top-left
-        [output_size[0], output_size[1]],            # Top-right
-        [alpha, 0],                                  # Bottom-left 2nd
-        [output_size[0]-alpha, 0],                   # Bottom-right 2nd
-        [alpha, output_size[1]],                     # Top-left 2nd
-        [output_size[0]-alpha, output_size[1]]       # Top-right 2nd
-    ], dtype=np.float32)
-
-    # Compute the homography from the detected points to the top-down view
-    homographyMatrix, _ = cv2.findHomography(points2d, dstPoints)
-
-    # Warp the image using the homography matrix to get the top-down view
-    topDownView = cv2.warpPerspective(image, homographyMatrix, output_size)
-
-    return topDownView, dstPoints
-
-
-def warpBackToOriginalView(topDownView, points2d, dstPoints, outputSize, originalImageSize):
-    """
-    Warps the top-down view back to the original perspective.
-    """
-    # Calculate the homography matrix from top-down to original perspective
-    homographyMatrix, _ = cv2.findHomography(dstPoints, points2d)
-    
-    # Warp the top-down image back to the original perspective
-    originalPerspectiveView = cv2.warpPerspective(topDownView, homographyMatrix, originalImageSize)
-    
-    return originalPerspectiveView
-
 def addHorizontalBanner(frame, adImage, points2d, outputSize=(800, 600)):
     """
     Add horizontal banner to frame using perspective transform
@@ -267,7 +180,7 @@ def addHorizontalBanner(frame, adImage, points2d, outputSize=(800, 600)):
     # Get frame dimensions
     frameH, frameW = frame.shape[:2]
     
-    # Resize ad banner to appropriate width while maintaining aspect ratio
+    # Resize ad banner to appropriate width
     bannerWidth = frameW
     aspectRatio = adImage.shape[1] / adImage.shape[0]
     bannerHeight = int(bannerWidth / aspectRatio)
@@ -281,8 +194,7 @@ def addHorizontalBanner(frame, adImage, points2d, outputSize=(800, 600)):
         [0, bannerHeight-1]        # bottom left
     ], dtype=np.float32)
     
-    # Reorder destination points to match the correct orientation
-    # Now using: bottom-left, bottom-right, top-right, top-left
+    # Reorder destination points to match orientation
     dst_points = np.array([
         points2d[2],  # bottom right
         points2d[3],  # bottom left
@@ -293,10 +205,10 @@ def addHorizontalBanner(frame, adImage, points2d, outputSize=(800, 600)):
     # Calculate perspective transform
     matrix = cv2.getPerspectiveTransform(src_points, dst_points)
     
-    # Warp the ad banner
+    # Warp ad banner
     warpedBanner = cv2.warpPerspective(adResized, matrix, (frameW, frameH))
     
-    # Create a mask for the warped banner
+    # Create mask for the warped banner
     mask = np.zeros((frameH, frameW), dtype=np.uint8)
     cv2.fillConvexPoly(mask, dst_points.astype(np.int32), 255)
     
@@ -405,54 +317,6 @@ if __name__ == "__main__":
     if len(points2dCourt) < len(points3d):
         raise ValueError("Not enough points selected")
 
-    # Calibrate camera
-    cameraMatrix, distCoeffs, rvecs, tvecs = calibrate_from_points(
-        points3d, points2dCourt, imageSize)
-
-    # Analyze and display results
-    errors, meanError = analyze_results(
-        points3d, points2dCourt, cameraMatrix, distCoeffs, rvecs, tvecs)
-
-    # Display results
-    print("\nCamera Matrix:")
-    print(cameraMatrix)
-    print("\nDistortion Coefficients:")
-    print(distCoeffs.ravel())
-    print("\nRotation matrix:")
-    print(rvecs)
-    print("\nTranslation matrix:")
-    print(tvecs)
-
-    # # Generate the top-down view of the court
-    # topDownView, dstPoints = warpToTopDownView(image, points3d, points2d, cameraMatrix, distCoeffs, rvecs, tvecs)
-
-    # # Display the top-down view
-    # plt.figure(figsize=(10, 5))
-    # plt.imshow(cv2.cvtColor(topDownView, cv2.COLOR_BGR2RGB))
-    # plt.axis('off')
-    # plt.title('Top-Down View of the Tennis Court')
-    # plt.show()
-
-    # topImageResized = cv2.resize(ad, (topDownView.shape[1], ad.shape[0]))
-    # combinedImage = np.vstack((topImageResized, topDownView))
-
-    # # Plot again
-    # plt.figure(figsize=(10, 5))
-    # plt.imshow(cv2.cvtColor(combinedImage, cv2.COLOR_BGR2RGB))
-    # plt.axis('off')
-    # plt.title('Top-Down View of the Tennis Court')
-    # plt.show()
-
-    # # back to original view
-    # OGView = warpBackToOriginalView(combinedImage, points2d, dstPoints, (800,600), image.shape[1::-1])
-
-    # # Display the top-down view
-    # plt.figure(figsize=(10, 5))
-    # plt.imshow(cv2.cvtColor(OGView, cv2.COLOR_BGR2RGB))
-    # plt.axis('off')
-    # plt.title('OG View of the Tennis Court with ad')
-    # plt.show()
-
     # Test addHorizontalBanner 
     bannerCorners = 4
     points2dBanner = get_banner_points(image, bannerCorners)
@@ -462,9 +326,3 @@ if __name__ == "__main__":
     plt.axis('off')
     plt.title('Test')
     plt.show()
-
-
-# if __name__ == "__main__":
-#     video_path = 'video2.1.mp4'
-#     ad_path = 'image.png'
-#     process_video(video_path, ad_path)
