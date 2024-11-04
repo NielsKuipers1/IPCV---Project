@@ -58,7 +58,7 @@ def detect_lines(frame, canny_threshold1=100, canny_threshold2=700):
     # Combine the output image with the dilated lines
     output_image = cv2.addWeighted(output_image, 1, dilated_lines_color, 1, 0)
 
-    return output_image, lines
+    return line_mask, lines
 
 video_path = 'video2.mp4'
 cap = cv2.VideoCapture(video_path)
