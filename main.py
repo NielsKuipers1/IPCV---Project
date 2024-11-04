@@ -1,85 +1,120 @@
 import cv2
 import numpy as np
-import os
+from scipy.spatial import KDTree
 
+def detect_corners(frame):
+    # Convert to grayscale and apply Gaussian blur
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-def detect_lines(frame, canny_threshold1=100, canny_threshold2=700):
-    """
-    Detects lines in an image and returns the image with lines drawn.
-    Parameters:
-    - frame: Input image (as a NumPy array).
-    - canny_threshold1: Lower threshold for the Canny edge detector.
-    - canny_threshold2: Upper threshold for the Canny edge detector.
-    
-    Returns:
-    - output_image: Image with detected lines drawn on it.
-    - lines: List of detected lines in (rho, theta) format.
-    """
-    # Step 1: Create a mask for white pixels in the color image
-    lower_white = np.array([170, 170, 170], dtype=np.uint8)
-    upper_white = np.array([255, 255, 255], dtype=np.uint8)
-    frame = cv2.GaussianBlur(frame, (3, 3), 0)
-    white_mask = cv2.inRange(frame, lower_white, upper_white)
-    
-    # Step 2: Apply the mask to get only white regions in the grayscale image
-    masked_image = cv2.bitwise_and(frame, frame, mask=white_mask)
+    # Apply Harris Corner Detection
+    gray_float = np.float32(blurred)
+    corners_harris = cv2.cornerHarris(gray_float, blockSize=5, ksize=7, k=0.04)
+    corners_harris = cv2.dilate(corners_harris, None)
+    threshold = 0.003 * corners_harris.max()
+    corner_coords = np.argwhere(corners_harris > threshold)
+    points = np.array(corner_coords)
 
-    # Convert to grayscale
-    gray = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
-    
-    # Edge detection using Canny
-    edges = cv2.Canny(gray, canny_threshold1, canny_threshold2, apertureSize=3)
-    
-    # Detect lines using Hough Line Transform
-    lines = cv2.HoughLinesP(edges, rho=1, theta=np.pi / 360, threshold=100, minLineLength=150, maxLineGap=350)
-    
-    # Create an empty image for the lines
-    line_mask = np.zeros_like(gray)
-    
-    if lines is not None:
-        for line in lines:
-            x1, y1, x2, y2 = line[0]  # Get merged line coordinates
-            cv2.line(line_mask, (x1, y1), (x2, y2), 255, 2)  # Draw lines in white on the mask
-    else:
-        print("No lines detected")
+    # Group and filter points
+    grouped_points = group_close_points(points, distance_threshold=22) # to lessen noise of the points
+    flat_points = np.array([np.mean(group, axis=0) for group in grouped_points]) # cast into the form that is used by the next funcion
+    isolated_points = filter_isolated_points(flat_points, distance_threshold=30) # Remove the noise around the field by removing points that are still close together after grouping
 
-    # Create a kernel for dilation
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 10))  # 10x10 rectangular kernel
+    return isolated_points
 
-    # Apply dilation only to the line mask
-    dilated_line_mask = cv2.dilate(line_mask, kernel, iterations=1)
+def filter_isolated_points(points, distance_threshold):
+    tree = KDTree(points)
+    isolated_points = []
+    for i, point in enumerate(points):
+        neighbors = tree.query_ball_point(point, r=distance_threshold)
+        if len(neighbors) == 1:  # Only keep points with no neighbors within the threshold
+            isolated_points.append(point)
+    return np.array(isolated_points)
 
-    # Create an output image to draw the dilated lines on
-    output_image = frame.copy()
+def group_close_points(points, distance_threshold):
+    tree = KDTree(points)
+    visited = set()
+    grouped = []
+    for i, point in enumerate(points):
+        if i in visited:
+            continue
+        indices = tree.query_ball_point(point, r=distance_threshold)
+        cluster = points[indices]
+        grouped.append(cluster)
+        visited.update(indices)
+    return grouped
 
-    # Create a color mask to apply the dilated lines to the output image
-    dilated_lines_color = cv2.cvtColor(dilated_line_mask, cv2.COLOR_GRAY2BGR)
-    
-    # Combine the output image with the dilated lines
-    output_image = cv2.addWeighted(output_image, 1, dilated_lines_color, 1, 0)
+def draw_horizontal_lines(frame, corners, margin=20):
+    horizontal_lines = []
+    processed = set()  # Track processed points
+    leftmost_rightmost_pairs = []  # Store the leftmost and rightmost points of each line
 
-    return line_mask, lines
+    for i in range(len(corners)):
+        if tuple(corners[i]) in processed:
+            continue
+        
+        line = [corners[i]]
+        processed.add(tuple(corners[i]))  # Store as a tuple for immutability
+        
+        # Check the next points to see if they are within the margin
+        for j in range(i + 1, len(corners)):
+            if abs(corners[j][0] - corners[i][0]) <= margin and tuple(corners[j]) not in processed:
+                line.append(corners[j])
+                processed.add(tuple(corners[j]))
 
+        # Check if there are at least 4 points in this line
+        if len(line) >= 4:
+            horizontal_lines.append(line)
+            # Draw the line between the two furthest points in the line
+            line = np.array(line)
+            leftmost = line[line[:, 1].argmin()]
+            rightmost = line[line[:, 1].argmax()]
+            cv2.line(frame, (int(leftmost[1]), int(leftmost[0])), (int(rightmost[1]), int(rightmost[0])), (0, 255, 0), 2)
+            
+            # Append each leftmost and rightmost pair for labeling later
+            leftmost_rightmost_pairs.append((leftmost, rightmost))
+
+    return leftmost_rightmost_pairs  # Return pairs of points for all detected lines
+
+def label_corners(frame, leftmost_rightmost_pairs): #categorize the points in left and right of the line
+    for (leftmost, rightmost) in leftmost_rightmost_pairs:
+        if leftmost is not None:
+            x_left, y_left = int(leftmost[1]), int(leftmost[0])
+            cv2.putText(frame, 'Leftmost', (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+        
+        if rightmost is not None:
+            x_right, y_right = int(rightmost[1]), int(rightmost[0])
+            cv2.putText(frame, 'Rightmost', (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+# Video processing setup
 video_path = 'video2.mp4'
 cap = cv2.VideoCapture(video_path)
-
 frame_count = 0
 fps = cap.get(cv2.CAP_PROP_FPS)
-frames_per_segment = int(fps * 2.5)  
+frames_per_segment = int(fps * 2.5)
 total_segments = 8
 total_frames = frames_per_segment * total_segments
-boundaries = [([170, 170, 100], [255, 255, 255])]
-
 
 while frame_count < total_frames:
     ret, frame = cap.read()
     if not ret:
         break
-    # Step 1: line detection
-    frame, lines = detect_lines(frame)
+
+    corners = detect_corners(frame)  # Get detected corners
+    for corner in corners:
+        x, y = int(corner[1]), int(corner[0])  # Convert to (x, y) for drawing
+        cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)  # Draw in green for detected corners
     
-    cv2.imshow('frame',frame)
-    cv2.waitKey(25)
-    frame_count += 1 
-#cap.release()
-#cv2.destroyAllWindows()
+    # Draw horizontal lines and retrieve all leftmost and rightmost pairs
+    leftmost_rightmost_pairs = draw_horizontal_lines(frame, corners)
+
+    # Label the leftmost and rightmost corners for each detected line
+    label_corners(frame, leftmost_rightmost_pairs)
+
+    cv2.imshow('frame', frame)
+    if cv2.waitKey(25) & 0xFF == ord('q'):
+        break
+    frame_count += 1
+
+cap.release()
+cv2.destroyAllWindows()
