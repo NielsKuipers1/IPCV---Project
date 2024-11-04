@@ -175,23 +175,17 @@ def mapIm2Line(frame, image, beginLine, endLine, beginAdProcent, endAdProcent):
     # debugDisplay(frame,beginLine,endLine,adBeginPoint,adEndPoint,adBeginUpperPoint,adEndUpperPoint)
 
     paraArray = np.array([[adBeginUpperPoint[0], adBeginUpperPoint[1]], [adEndUpperPoint[0], adEndUpperPoint[1]], [adBeginPoint[0], adBeginPoint[1]], [adEndPoint[0], adEndPoint[1]]], dtype=np.float32)
-    # paraArray = np.array([[adEndPoint[0], adEndPoint[1]],[adBeginPoint[0], adBeginPoint[1]], [adEndUpperPoint[0], adEndUpperPoint[1]], [adBeginUpperPoint[0], adBeginUpperPoint[1]]], dtype=np.float32)
-    overlay_h, overlay_w = image.shape[:2]
-    imageArray = np.array([[overlay_w, 0],[0, 0],[0, overlay_h], [overlay_w, overlay_h]], dtype=np.float32)
+    overlayH, overlayW = image.shape[:2]
+    imageArray = np.array([[overlayW, 0],[0, 0],[0, overlayH], [overlayW, overlayH]], dtype=np.float32)
 
-    homography_matrix, _ = cv2.findHomography(imageArray, paraArray)
-    # Warp the overlay image to fit the current frame's src_points
-    warped_image = cv2.warpPerspective(image, homography_matrix, (frame.shape[1], frame.shape[0]))
-    # Create a mask from the warped image
-    mask = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
+    homographyMatrix, _ = cv2.findHomography(imageArray, paraArray)
+    warpedImage = cv2.warpPerspective(image, homographyMatrix, (frame.shape[1], frame.shape[0]))
+    mask = cv2.cvtColor(warpedImage, cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
-    # Invert mask to apply to the original frame
-    mask_inv = cv2.bitwise_not(mask)
-    # Black-out the area of the overlay on the original frame
-    frame_bg = cv2.bitwise_and(frame, frame, mask=mask_inv)
-    # Add the warped overlay image
-    combined_frame = cv2.add(frame_bg, warped_image)
-    return combined_frame
+    maskInv = cv2.bitwise_not(mask)
+    frameBg = cv2.bitwise_and(frame, frame, mask=maskInv)
+    combinedFrame = cv2.add(frameBg, warpedImage)
+    return combinedFrame
 
 
 
