@@ -83,6 +83,7 @@ def label_corners(frame, leftmost_rightmost_pairs):
 
     labeled_corners = []  # Initialize a list to hold labeled corners
 
+
     for (leftmost, rightmost) in leftmost_rightmost_pairs:
         if leftmost is not None:
             x_left, y_left = int(leftmost[1]), int(leftmost[0])
@@ -106,6 +107,20 @@ def label_corners(frame, leftmost_rightmost_pairs):
 
     return labeled_corners  # Return the list of labeled corners
 
+def draw_labeled_corners(frame, labeled_corners):
+    """
+    Draw the labeled corners on the frame.
+    
+    Parameters:
+    - frame: The current frame of the video.
+    - labeled_corners: A list of tuples containing corner coordinates and labels.
+    """
+    for (corner, label) in labeled_corners:
+        x, y = corner
+        cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)  # Draw corners in red
+        cv2.putText(frame, label, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+
 # Video processing setup
 video_path = 'video2.mp4'
 cap = cv2.VideoCapture(video_path)
@@ -114,6 +129,7 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 frames_per_segment = int(fps * 2.5)
 total_segments = 8
 total_frames = frames_per_segment * total_segments
+i = 1
 
 while frame_count < total_frames:
     ret, frame = cap.read()
@@ -130,6 +146,22 @@ while frame_count < total_frames:
 
     # Label the leftmost and rightmost corners for each detected line
     labeled_corners = label_corners(frame, leftmost_rightmost_pairs)
+    if frame_count < 1:
+        previous_corners= labeled_corners
+    else:
+        if len(labeled_corners) < 4:
+            # Action for when the size is smaller than 4
+            labeled_corners = previous_corners
+            print("1Labeled corners are less than 4")
+        elif len(labeled_corners) > 4:
+            # Action for when the size is larger than 4
+            labeled_corners = previous_corners
+            print("1Labeled corners are greater than 4")
+        else:  # This will handle the case when the size is exactly 4
+            # Action for when the size is equal to 4
+            print("1Labeled corners are equal to 4")
+    previous_corners = labeled_corners
+    draw_labeled_corners(frame, labeled_corners)
 
     cv2.imshow('frame', frame)
     if cv2.waitKey(25) & 0xFF == ord('q'):
