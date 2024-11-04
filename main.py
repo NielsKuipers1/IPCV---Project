@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 from scipy.spatial import KDTree
+import matplotlib.pyplot as plt
 
 def detect_corners(frame, boundaries, lines, max_distance=10):
     intersections = []
@@ -140,9 +141,9 @@ while frame_count < total_frames:
     ret, frame = cap.read()
     if not ret:
         break
-    # Step 1: corner and line detection (localize calibration points)
-    output_frame, detected_lines = detect_lines(frame, boundaries)
-    output_frame, intersections = detect_corners(frame,boundaries,detected_lines)
+    # # Step 1: corner and line detection (localize calibration points)
+    # output_frame, detected_lines = detect_lines(frame, boundaries)
+    # output_frame, intersections = detect_corners(frame,boundaries,detected_lines)
     
     # Step 2 Intrinsic camera calibration using the known 3D positions of reference objects
     
@@ -153,8 +154,48 @@ while frame_count < total_frames:
     # Step 5 Based on these tracked points and/or lines, camera pose tracking during the movie.
 
     # Step 6 Projection of a virtual banner which has a rectangular shape in the real world and located near a court line
+    if frame_count == 150:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert to RGB for displaying
+        frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    cv2.imshow("Detected Lines", output_frame)
+        hue_channel = frame_hsv[:, :, 0] # Create a histogram with 180 bins for the Hue channel
+
+        hist, bins = np.histogram(hue_channel.ravel(), bins=180, range=[0, 180])
+
+        # Normalize the histogram
+        hist = hist / hist.max()
+
+        # Create an array for hue colors
+        hue_colors = [cv2.cvtColor(np.uint8([[[h, 255, 255]]]), cv2.COLOR_HSV2RGB) / 255.0 for h in range(180)]
+        # Split the frame into its RGB components
+        blue_channel, green_channel, red_channel = cv2.split(frame)
+
+        # Set figure size for an IEEE single-column format
+        plt.figure(figsize=(3.5, 2.5))  # Adjust size as needed for readability
+
+        # Plot histograms for each color channel
+        plt.hist(red_channel.ravel(), bins=256, range=[0, 256], color='red', alpha=0.5, label='Red Channel')
+        plt.hist(green_channel.ravel(), bins=256, range=[0, 256], color='green', alpha=0.5, label='Green Channel')
+        plt.hist(blue_channel.ravel(), bins=256, range=[0, 256], color='blue', alpha=0.5, label='Blue Channel')
+
+        # Plot configuration
+        plt.title('RGB Histogram', fontsize=10)
+        plt.xlabel('Pixel Intensity', fontsize=8)
+        plt.ylabel('Frequency', fontsize=8)
+        plt.xticks(fontsize=7)
+        plt.yticks(fontsize=7)
+        plt.legend(loc='upper right', fontsize=6)
+        plt.grid(axis='y', linestyle='--', alpha=0.5)
+
+        # Adjust layout for better fit
+        plt.tight_layout()
+
+        # Save the figure to a file suitable for IEEE submission
+        plt.savefig('rgb_histogram_ieee.png', dpi=300, bbox_inches='tight')
+
+        # Display the plot (optional)
+        plt.show()
+    cv2.imshow("Detected Lines", frame)
     cv2.waitKey(25)
     frame_count += 1 
 cap.release()
