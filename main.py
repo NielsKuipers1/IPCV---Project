@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import os
+from scipy.spatial import KDTree
 
 def detect_corners(frame, boundaries, lines, max_distance=10):
     intersections = []
@@ -27,7 +28,8 @@ def detect_corners(frame, boundaries, lines, max_distance=10):
         if moments["m00"] != 0:
             cx = int(moments["m10"] / moments["m00"])
             cy = int(moments["m01"] / moments["m00"])
-
+            cv2.circle(frame, (cx, cy), 3, (0, 255, 255), -1)
+            print(cy)
             # Check distance to both ends of the lines
             for line in lines:
                 x1, y1, x2, y2 = line[0]
@@ -40,34 +42,7 @@ def detect_corners(frame, boundaries, lines, max_distance=10):
                     cv2.circle(frame, (cx, cy), 3, (0, 0, 255), -1)
                     corner_points.append((cx, cy))
                     intersections.append(contour)
-
                     break  # No need to check other lines for this contour
-    horizontal_lines = []
-    margin = 10
-    # Track processed points
-    processed = set()
-
-    for i in range(len(corner_points)):
-        if corner_points[i] in processed:
-            continue
-        
-        line = [corner_points[i]]
-        processed.add(corner_points[i])
-        
-        # Check the next points to see if they are within the margin
-        for j in range(i + 1, len(corner_points)):
-            if abs(corner_points[j][1] - corner_points[i][1]) <= margin and corner_points[j] not in processed:
-                line.append(corner_points[j])
-                processed.add(corner_points[j])
-
-        # Check if there are at least 4 points in this line
-        if len(line) >= 4:
-            horizontal_lines.append(line)
-
-        # for line in horizontal_lines:
-        #     for (x, y) in line:
-                # cv2.circle(frame, (x, y), 10, (0, 0, 255), 2)  # Red circle for horizontal line points
-
     # for i in range(len(corner_points)):
     #     for j in range(i + 1, len(corner_points)):
     #         p1 = corner_points[i]
@@ -76,8 +51,6 @@ def detect_corners(frame, boundaries, lines, max_distance=10):
     #         if line_length >= min_line_length:
     #             if is_line_white(gray, p1, p2):
     #                 cv2.line(frame, p1, p2, (0, 255, 0), 2)  # Draw line
-    #                                 # Classify lines as horizontal or vertical  
-
     return frame, ccorner
 
 def is_line_white(frame, p1, p2, color_threshold=200, white_percentage=0.9):
@@ -126,6 +99,30 @@ def detect_lines(frame, boundaries, min_line_length=100):
                 filtered_lines.append(line)
                 # cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Draw long lines only
     return frame, filtered_lines
+
+def group_close_points(points, distance_threshold):
+    """Group points that are close together based on a distance threshold using KD-Tree."""
+    # Create a KD-Tree from the points
+    tree = KDTree(points)
+    visited = set()
+    grouped = []
+
+    for i, point in enumerate(points):
+        if i in visited:
+            continue
+        
+        # Find all points within the distance threshold
+        indices = tree.query_ball_point(point, r=distance_threshold)
+
+        # Create a cluster of points found
+        cluster = points[indices]
+        grouped.append(cluster)
+        
+        # Mark these points as visited
+        visited.update(indices)
+
+    return grouped
+
 
 # initiate video 
 video_path = 'video2.mp4'
