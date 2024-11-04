@@ -81,6 +81,8 @@ def label_corners(frame, leftmost_rightmost_pairs):
     frame_height = frame.shape[0]
     vertical_center = frame_height / 2
 
+    labeled_corners = []  # Initialize a list to hold labeled corners
+
     for (leftmost, rightmost) in leftmost_rightmost_pairs:
         if leftmost is not None:
             x_left, y_left = int(leftmost[1]), int(leftmost[0])
@@ -88,6 +90,9 @@ def label_corners(frame, leftmost_rightmost_pairs):
             position_left = "above" if y_left < vertical_center else "below"
             label_left = f"Leftmost ({position_left})"
             cv2.putText(frame, label_left, (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+            # Append to labeled corners
+            labeled_corners.append(((x_left, y_left), label_left))
         
         if rightmost is not None:
             x_right, y_right = int(rightmost[1]), int(rightmost[0])
@@ -95,6 +100,11 @@ def label_corners(frame, leftmost_rightmost_pairs):
             position_right = "above" if y_right < vertical_center else "below"
             label_right = f"Rightmost ({position_right})"
             cv2.putText(frame, label_right, (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+            # Append to labeled corners
+            labeled_corners.append(((x_right, y_right), label_right))
+
+    return labeled_corners  # Return the list of labeled corners
 
 # Video processing setup
 video_path = 'video2.mp4'
@@ -119,7 +129,7 @@ while frame_count < total_frames:
     leftmost_rightmost_pairs = draw_horizontal_lines(frame, corners)
 
     # Label the leftmost and rightmost corners for each detected line
-    label_corners(frame, leftmost_rightmost_pairs)
+    labeled_corners = label_corners(frame, leftmost_rightmost_pairs)
 
     cv2.imshow('frame', frame)
     if cv2.waitKey(25) & 0xFF == ord('q'):
