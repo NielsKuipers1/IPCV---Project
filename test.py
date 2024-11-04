@@ -2,18 +2,6 @@ import cv2
 import numpy as np
 from scipy.spatial import KDTree
 
-def load_templates(template_paths):
-    templates = {}
-    for label, path in template_paths.items():
-        # Load template and convert to grayscale immediately
-        template = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        if template is None:
-            print(f"Failed to load template: {label} from path: {path}")
-        else:
-            print(f"Loaded template: {label} with shape: {template.shape}")
-        templates[label] = template  # Store template regardless of success for consistent access
-    return templates
-
 def detect_corners(frame):
     # Convert to grayscale and apply Gaussian blur
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -28,7 +16,7 @@ def detect_corners(frame):
     points = np.array(corner_coords)
 
     # Group and filter points
-    grouped_points = group_close_points(points, distance_threshold=25)
+    grouped_points = group_close_points(points, distance_threshold=22)
     flat_points = np.array([np.mean(group, axis=0) for group in grouped_points])
     isolated_points = filter_isolated_points(flat_points, distance_threshold=30)
 
@@ -56,65 +44,57 @@ def group_close_points(points, distance_threshold):
         visited.update(indices)
     return grouped
 
-def classify_corners(frame, corners, templates, threshold=5):
-    # Initialize SIFT detector
-    sift = cv2.SIFT_create()
+def draw_horizontal_lines(frame, corners, margin=20):
+    horizontal_lines = []
+    processed = set()  # Track processed points
+    leftmost_rightmost_pairs = []  # Store the leftmost and rightmost points of each line
 
-    # Create a FLANN matcher
-    index_params = dict(algorithm=1, trees=5)
-    search_params = dict(checks=50)
-    flann = cv2.FlannBasedMatcher(index_params, search_params)
-
-    for corner in corners:
-        x, y = int(corner[1]), int(corner[0])  # Convert to (x, y) for drawing
+    for i in range(len(corners)):
+        if tuple(corners[i]) in processed:
+            continue
         
-        # Define the region of interest around the corner
-        h, w = 100, 100  # Size of the region to match
-        roi = frame[max(0, y-h):min(frame.shape[0], y+h), max(0, x-w):min(frame.shape[1], x+w)]  # Extract region of interest
-
-        # Convert ROI to grayscale for SIFT
-        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        line = [corners[i]]
+        processed.add(tuple(corners[i]))  # Store as a tuple for immutability
         
-        # Detect SIFT features in the ROI
-        kp_roi, des_roi = sift.detectAndCompute(roi_gray, None)
-        best_match = None
-        best_match_count = 0
+        # Check the next points to see if they are within the margin
+        for j in range(i + 1, len(corners)):
+            if abs(corners[j][0] - corners[i][0]) <= margin and tuple(corners[j]) not in processed:
+                line.append(corners[j])
+                processed.add(tuple(corners[j]))
 
-        # Match the ROI against each template
-        for label, template in templates.items():
-            if template is not None:  # Ensure template is loaded
-                kp_template, des_template = sift.detectAndCompute(template, None)
-                if des_template is not None and des_roi is not None:
-                    # Perform matching
-                    matches = flann.knnMatch(des_roi, des_template, k=2)
+        # Check if there are at least 4 points in this line
+        if len(line) >= 4:
+            horizontal_lines.append(line)
+            # Draw the line between the two furthest points in the line
+            line = np.array(line)
+            leftmost = line[line[:, 1].argmin()]
+            rightmost = line[line[:, 1].argmax()]
+            cv2.line(frame, (int(leftmost[1]), int(leftmost[0])), (int(rightmost[1]), int(rightmost[0])), (0, 255, 0), 2)
+            
+            # Append each leftmost and rightmost pair for labeling later
+            leftmost_rightmost_pairs.append((leftmost, rightmost))
 
-                    # Apply Lowe's ratio test
-                    good_matches = [m for m, n in matches if m.distance < 0.9 * n.distance]
+    return leftmost_rightmost_pairs  # Return pairs of points for all detected lines
 
-                    # Check for a good match
-                    if len(good_matches) > best_match_count:
-                        best_match_count = len(good_matches)
-                        best_match = label
+def label_corners(frame, leftmost_rightmost_pairs):
+    # Get the vertical center of the frame
+    frame_height = frame.shape[0]
+    vertical_center = frame_height / 2
 
-        # If the best match is above the threshold, draw it on the frame
-        if best_match and best_match_count >= threshold:
-            cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)  # Draw in green for classification
-            cv2.putText(frame, best_match, (x + 10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-    return frame
-
-# Load your templates here
-template_paths = {
-    'Corner A': 'templates/bottomleftin.png',
-    'Corner B': 'templates/bottomleftout.png',
-    'Corner C': 'templates/bottomrightin.png',
-    'Corner D': 'templates/bottomleftout.png',
-    'Corner E': 'templates/topleftout.png',
-    'Corner F': 'templates/toprightin.png',
-    'Corner G': 'templates/topleftin.png',
-    'Corner H': 'templates/toprightout.png',
-}
-templates = load_templates(template_paths)
+    for (leftmost, rightmost) in leftmost_rightmost_pairs:
+        if leftmost is not None:
+            x_left, y_left = int(leftmost[1]), int(leftmost[0])
+            # Determine position relative to center
+            position_left = "above" if y_left < vertical_center else "below"
+            label_left = f"Leftmost ({position_left})"
+            cv2.putText(frame, label_left, (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+        
+        if rightmost is not None:
+            x_right, y_right = int(rightmost[1]), int(rightmost[0])
+            # Determine position relative to center
+            position_right = "above" if y_right < vertical_center else "below"
+            label_right = f"Rightmost ({position_right})"
+            cv2.putText(frame, label_right, (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
 # Video processing setup
 video_path = 'video2.mp4'
@@ -131,7 +111,15 @@ while frame_count < total_frames:
         break
 
     corners = detect_corners(frame)  # Get detected corners
-    frame = classify_corners(frame, corners, templates)  # Classify corners
+    for corner in corners:
+        x, y = int(corner[1]), int(corner[0])  # Convert to (x, y) for drawing
+        cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)  # Draw in green for detected corners
+    
+    # Draw horizontal lines and retrieve all leftmost and rightmost pairs
+    leftmost_rightmost_pairs = draw_horizontal_lines(frame, corners)
+
+    # Label the leftmost and rightmost corners for each detected line
+    label_corners(frame, leftmost_rightmost_pairs)
 
     cv2.imshow('frame', frame)
     if cv2.waitKey(25) & 0xFF == ord('q'):
