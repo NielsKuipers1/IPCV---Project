@@ -16,9 +16,9 @@ def detect_corners(frame):
     points = np.array(corner_coords)
 
     # Group and filter points
-    grouped_points = group_close_points(points, distance_threshold=22) # to lessen noise of the points
-    flat_points = np.array([np.mean(group, axis=0) for group in grouped_points]) # cast into the form that is used by the next funcion
-    isolated_points = filter_isolated_points(flat_points, distance_threshold=30) # Remove the noise around the field by removing points that are still close together after grouping
+    grouped_points = group_close_points(points, distance_threshold=22)
+    flat_points = np.array([np.mean(group, axis=0) for group in grouped_points])
+    isolated_points = filter_isolated_points(flat_points, distance_threshold=30)
 
     return isolated_points
 
@@ -76,15 +76,25 @@ def draw_horizontal_lines(frame, corners, margin=20):
 
     return leftmost_rightmost_pairs  # Return pairs of points for all detected lines
 
-def label_corners(frame, leftmost_rightmost_pairs): #categorize the points in left and right of the line
+def label_corners(frame, leftmost_rightmost_pairs):
+    # Get the vertical center of the frame
+    frame_height = frame.shape[0]
+    vertical_center = frame_height / 2
+
     for (leftmost, rightmost) in leftmost_rightmost_pairs:
         if leftmost is not None:
             x_left, y_left = int(leftmost[1]), int(leftmost[0])
-            cv2.putText(frame, 'Leftmost', (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            # Determine position relative to center
+            position_left = "above" if y_left < vertical_center else "below"
+            label_left = f"Leftmost ({position_left})"
+            cv2.putText(frame, label_left, (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
         
         if rightmost is not None:
             x_right, y_right = int(rightmost[1]), int(rightmost[0])
-            cv2.putText(frame, 'Rightmost', (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            # Determine position relative to center
+            position_right = "above" if y_right < vertical_center else "below"
+            label_right = f"Rightmost ({position_right})"
+            cv2.putText(frame, label_right, (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
 # Video processing setup
 video_path = 'video2.mp4'
