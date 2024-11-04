@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 from scipy.spatial import KDTree
+import os
+import math
 
 def detect_corners(frame):
     # Convert to grayscale and apply Gaussian blur
@@ -119,6 +121,77 @@ def draw_labeled_corners(frame, labeled_corners):
         x, y = corner
         cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)  # Draw corners in red
         cv2.putText(frame, label, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+# Determine begin and endpoint of ad
+def getBeginEndCoords(beginAdProcent, endAdProcent, lowerCorner, upperCorner):
+    xBegin = int(lowerCorner[0]+beginAdProcent*(upperCorner[0]-lowerCorner[0]))
+    yBegin = int(lowerCorner[1]+beginAdProcent*(upperCorner[1]-lowerCorner[1]))
+    xEnd = int(lowerCorner[0]+endAdProcent*(upperCorner[0]-lowerCorner[0]))
+    yEnd = int(lowerCorner[1]+endAdProcent*(upperCorner[1]-lowerCorner[1]))
+    return (xBegin,yBegin), (xEnd,yEnd)
+
+# Determine from begin and endpoint of add the distance between the points and the angle
+def getLengthAndAngle(beginPoint, endPoint):
+    dx = endPoint[0] - beginPoint[0]
+    dy = endPoint[1] - beginPoint[1]
+    
+    # Calculate the distance
+    length = math.sqrt(dx**2 + dy**2)
+    
+    # Calculate the angle in radians 
+    angle = math.atan2(dy, dx)
+    return length,angle
+
+
+# Determine the rectangle where ad needs to be projected on
+def getParallelogramPoints(beginPoint, endPoint, height, angle, color=(255, 255, 255), thickness=2):
+    
+    # Calculate dx and dy for the first side
+    dx = endPoint[0] - beginPoint[0]
+    dy = endPoint[1] - beginPoint[1]
+
+    # Calculate the angle in radians
+    angle_rad = math.radians(angle)
+
+    # Calculate the two remaining points based on the length and angle
+    point3 = (int(endPoint[0] - height * math.cos(angle_rad - math.atan2(dy, dx))),
+              int(endPoint[1] - height * math.sin(angle_rad - math.atan2(dy, dx))))
+    point4 = (int(beginPoint[0] - height * math.cos(angle_rad - math.atan2(dy, dx))),
+              int(beginPoint[1] - height * math.sin(angle_rad - math.atan2(dy, dx))))
+    return point3, point4
+
+def debugDisplay(frame, beginLine, endLine, adBeginPoint, adEndPoint, adBeginUpperPoint, adEndUpperPoint):
+    cv2.line(frame, endLine, beginLine, color=(0, 255, 0), thickness=2)
+    cv2.circle(frame, adBeginPoint, radius=5, color=(0,0,255))
+    cv2.circle(frame, adEndPoint, radius=5, color=(0,0,255))
+    cv2.circle(frame, adBeginUpperPoint, radius=5, color=(0,0,255))
+    cv2.circle(frame, adEndUpperPoint, radius=5, color=(0,0,255))
+
+# Map ad to the rectangle
+def mapIm2Line(frame, image, beginLine, endLine, beginAdProcent, endAdProcent):
+    adBeginPoint, adEndPoint = getBeginEndCoords(beginAdProcent, endAdProcent, beginLine, endLine)
+    lengthLowerSide, angleLowerSide = getLengthAndAngle(adBeginPoint,adEndPoint)
+    adBeginUpperPoint, adEndUpperPoint = getParallelogramPoints(adBeginPoint, adEndPoint, lengthLowerSide, angleOfAd, color=(255, 255, 255), thickness=2)
+
+    debugDisplay(frame,beginLine,endLine,adBeginPoint,adEndPoint,adBeginUpperPoint,adEndUpperPoint)
+
+    paraArray = np.array([[adBeginUpperPoint[0], adBeginUpperPoint[1]], [adEndUpperPoint[0], adEndUpperPoint[1]], [adBeginPoint[0], adBeginPoint[1]], [adEndPoint[0], adEndPoint[1]]], dtype=np.float32)
+    # paraArray = np.array([[adEndPoint[0], adEndPoint[1]],[adBeginPoint[0], adBeginPoint[1]], [adEndUpperPoint[0], adEndUpperPoint[1]], [adBeginUpperPoint[0], adBeginUpperPoint[1]]], dtype=np.float32)
+    overlay_h, overlay_w = image.shape[:2]
+    imageArray = np.array([[overlay_w, 0],[0, 0],[0, overlay_h], [overlay_w, overlay_h]], dtype=np.float32)
+
+    homography_matrix, _ = cv2.findHomography(imageArray, paraArray)
+    # Warp the overlay image to fit the current frame's src_points
+    warped_image = cv2.warpPerspective(image, homography_matrix, (frame.shape[1], frame.shape[0]))
+    # Create a mask from the warped image
+    mask = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
+    # Invert mask to apply to the original frame
+    mask_inv = cv2.bitwise_not(mask)
+    # Black-out the area of the overlay on the original frame
+    frame_bg = cv2.bitwise_and(frame, frame, mask=mask_inv)
+    # Add the warped overlay image
+    combined_frame = cv2.add(frame_bg, warped_image)
+    return combined_frame
 
 
 # Video processing setup
@@ -130,6 +203,11 @@ frames_per_segment = int(fps * 2.5)
 total_segments = 8
 total_frames = frames_per_segment * total_segments
 i = 1
+
+overlay_image = cv2.imread('image.png')
+beginAdProcent = 0.6
+endAdProcent = 0.8
+angleOfAd = 0 # angle that ad makes with the perpendicular line to the plotted line in degrees
 
 while frame_count < total_frames:
     ret, frame = cap.read()
@@ -162,8 +240,12 @@ while frame_count < total_frames:
             print("1Labeled corners are equal to 4")
     previous_corners = labeled_corners
     draw_labeled_corners(frame, labeled_corners)
+    # print(labeled_corners)
+    # print(labeled_corners[0][0])
 
-    cv2.imshow('frame', frame)
+    combined_frame = mapIm2Line(frame, overlay_image, labeled_corners[2][0], labeled_corners[0][0], beginAdProcent, endAdProcent)
+
+    cv2.imshow('frame', combined_frame)
     if cv2.waitKey(25) & 0xFF == ord('q'):
         break
     frame_count += 1
