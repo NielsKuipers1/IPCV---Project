@@ -20,7 +20,7 @@ def detect_corners(frame):
     # Group and filter points
     grouped_points = group_close_points(points, distance_threshold=22)
     flat_points = np.array([np.mean(group, axis=0) for group in grouped_points])
-    isolated_points = filter_isolated_points(flat_points, distance_threshold=30)
+    isolated_points = filter_isolated_points(flat_points, distance_threshold=40)
 
     return isolated_points
 
@@ -71,7 +71,7 @@ def draw_horizontal_lines(frame, corners, margin=20):
             line = np.array(line)
             leftmost = line[line[:, 1].argmin()]
             rightmost = line[line[:, 1].argmax()]
-            cv2.line(frame, (int(leftmost[1]), int(leftmost[0])), (int(rightmost[1]), int(rightmost[0])), (0, 255, 0), 2)
+            # cv2.line(frame, (int(leftmost[1]), int(leftmost[0])), (int(rightmost[1]), int(rightmost[0])), (0, 255, 0), 2)
             
             # Append each leftmost and rightmost pair for labeling later
             leftmost_rightmost_pairs.append((leftmost, rightmost))
@@ -92,7 +92,7 @@ def label_corners(frame, leftmost_rightmost_pairs):
             # Determine position relative to center
             position_left = "above" if y_left < vertical_center else "below"
             label_left = f"Leftmost ({position_left})"
-            cv2.putText(frame, label_left, (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            # cv2.putText(frame, label_left, (x_left + 5, y_left - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
             # Append to labeled corners
             labeled_corners.append(((x_left, y_left), label_left))
@@ -102,7 +102,7 @@ def label_corners(frame, leftmost_rightmost_pairs):
             # Determine position relative to center
             position_right = "above" if y_right < vertical_center else "below"
             label_right = f"Rightmost ({position_right})"
-            cv2.putText(frame, label_right, (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+            # cv2.putText(frame, label_right, (x_right + 5, y_right - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
             # Append to labeled corners
             labeled_corners.append(((x_right, y_right), label_right))
@@ -119,8 +119,8 @@ def draw_labeled_corners(frame, labeled_corners):
     """
     for (corner, label) in labeled_corners:
         x, y = corner
-        cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)  # Draw corners in red
-        cv2.putText(frame, label, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        # cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)  # Draw corners in red
+        # cv2.putText(frame, label, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 # Determine begin and endpoint of ad
 def getBeginEndCoords(beginAdProcent, endAdProcent, lowerCorner, upperCorner):
     xBegin = int(lowerCorner[0]+beginAdProcent*(upperCorner[0]-lowerCorner[0]))
@@ -159,12 +159,12 @@ def getParallelogramPoints(beginPoint, endPoint, height, angle, color=(255, 255,
               int(beginPoint[1] - height * math.sin(angle_rad - math.atan2(dy, dx))))
     return point3, point4
 
-def debugDisplay(frame, beginLine, endLine, adBeginPoint, adEndPoint, adBeginUpperPoint, adEndUpperPoint):
-    cv2.line(frame, endLine, beginLine, color=(0, 255, 0), thickness=2)
-    cv2.circle(frame, adBeginPoint, radius=5, color=(0,0,255))
-    cv2.circle(frame, adEndPoint, radius=5, color=(0,0,255))
-    cv2.circle(frame, adBeginUpperPoint, radius=5, color=(0,0,255))
-    cv2.circle(frame, adEndUpperPoint, radius=5, color=(0,0,255))
+# def debugDisplay(frame, beginLine, endLine, adBeginPoint, adEndPoint, adBeginUpperPoint, adEndUpperPoint):
+    # cv2.line(frame, endLine, beginLine, color=(0, 255, 0), thickness=2)
+    # cv2.circle(frame, adBeginPoint, radius=5, color=(0,0,255))
+    # cv2.circle(frame, adEndPoint, radius=5, color=(0,0,255))
+    # cv2.circle(frame, adBeginUpperPoint, radius=5, color=(0,0,255))
+    # cv2.circle(frame, adEndUpperPoint, radius=5, color=(0,0,255))
 
 # Map ad to the rectangle
 def mapIm2Line(frame, image, beginLine, endLine, beginAdProcent, endAdProcent):
@@ -172,7 +172,7 @@ def mapIm2Line(frame, image, beginLine, endLine, beginAdProcent, endAdProcent):
     lengthLowerSide, angleLowerSide = getLengthAndAngle(adBeginPoint,adEndPoint)
     adBeginUpperPoint, adEndUpperPoint = getParallelogramPoints(adBeginPoint, adEndPoint, lengthLowerSide, angleOfAd, color=(255, 255, 255), thickness=2)
 
-    debugDisplay(frame,beginLine,endLine,adBeginPoint,adEndPoint,adBeginUpperPoint,adEndUpperPoint)
+    # debugDisplay(frame,beginLine,endLine,adBeginPoint,adEndPoint,adBeginUpperPoint,adEndUpperPoint)
 
     paraArray = np.array([[adBeginUpperPoint[0], adBeginUpperPoint[1]], [adEndUpperPoint[0], adEndUpperPoint[1]], [adBeginPoint[0], adBeginPoint[1]], [adEndPoint[0], adEndPoint[1]]], dtype=np.float32)
     # paraArray = np.array([[adEndPoint[0], adEndPoint[1]],[adBeginPoint[0], adBeginPoint[1]], [adEndUpperPoint[0], adEndUpperPoint[1]], [adBeginUpperPoint[0], adBeginUpperPoint[1]]], dtype=np.float32)
@@ -194,8 +194,10 @@ def mapIm2Line(frame, image, beginLine, endLine, beginAdProcent, endAdProcent):
     return combined_frame
 
 
-# Video processing setup
-video_path = 'video2.mp4'
+
+output_video_path = 'video3_edit.mp4'
+
+video_path = 'video3.mp4'
 cap = cv2.VideoCapture(video_path)
 frame_count = 0
 fps = cap.get(cv2.CAP_PROP_FPS)
@@ -203,6 +205,12 @@ frames_per_segment = int(fps * 2.5)
 total_segments = 8
 total_frames = frames_per_segment * total_segments
 i = 1
+cap = cv2.VideoCapture(video_path)
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = int(cap.get(cv2.CAP_PROP_FPS))
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4 format
+out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
 
 overlay_image = cv2.imread('image.png')
 beginAdProcent = 0.6
@@ -217,7 +225,7 @@ while frame_count < total_frames:
     corners = detect_corners(frame)  # Get detected corners
     for corner in corners:
         x, y = int(corner[1]), int(corner[0])  # Convert to (x, y) for drawing
-        cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)  # Draw in green for detected corners
+        # cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)  # Draw in green for detected corners
     
     # Draw horizontal lines and retrieve all leftmost and rightmost pairs
     leftmost_rightmost_pairs = draw_horizontal_lines(frame, corners)
@@ -244,7 +252,7 @@ while frame_count < total_frames:
     # print(labeled_corners[0][0])
 
     combined_frame = mapIm2Line(frame, overlay_image, labeled_corners[2][0], labeled_corners[0][0], beginAdProcent, endAdProcent)
-
+    out.write(combined_frame)
     cv2.imshow('frame', combined_frame)
     if cv2.waitKey(25) & 0xFF == ord('q'):
         break
